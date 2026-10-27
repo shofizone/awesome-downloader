@@ -401,7 +401,12 @@ export class DownloadEngine extends EventEmitter {
     }finally{clearInterval(timer);}
     signal.throwIfAborted();d.status='assembling';d.speed=0;d.duration=result.duration||undefined;this.changed();
     let output;
-    if(hasVideo){const {muxTracks}=await import('./mux.mjs');output=await muxTracks(dir,1,2,signal);}
+    if(hasVideo){
+      const {muxTracks,videoCodec,convertVideoToH264}=await import('./mux.mjs');output=await muxTracks(dir,1,2,signal);
+      // YouTube's server can send AV1 even when H.264 was chosen; keep the H.264 choice.
+      const requested=selected.formats.find(f=>f.itag===selected.videoItag);
+      if(/avc1/i.test(requested?.mimeType||'')&&await videoCodec(output,signal)!=='h264')output=await convertVideoToH264(dir,output,signal,requested.averageBitrate||requested.bitrate);
+    }
     else{const {convertMedia}=await import('./mux.mjs');output=await convertMedia(dir,[path.join(dir,'0.part')],'mp3',signal);}
     d.total=d.downloaded=(await fs.stat(output)).size;d.segments=[{start:0,end:d.total-1,downloaded:d.total,done:true}];
     await this.assemble(d,dir,signal,[output],true);

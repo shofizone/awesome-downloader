@@ -9,6 +9,19 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import ffmpeg from 'ffmpeg-static';
 import { DownloadEngine } from '../core/engine.mjs';
+import { videoCodec, convertVideoToH264 } from '../core/mux.mjs';
+
+test('a video track in another codec is detected and converted to H.264',async t=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'awesome-h264-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  const run=promisify(execFile),source=path.join(root,'combined.mp4'),{signal}=new AbortController();
+  // Stands in for the AV1 YouTube can send; not every ffmpeg-static build has an AV1 encoder.
+  await run(ffmpeg,['-v','error','-f','lavfi','-i','testsrc=s=160x90:r=10:d=1','-f','lavfi','-i','sine=f=440:d=1','-c:v','mpeg4','-c:a','aac','-shortest',source],{windowsHide:true});
+  assert.equal(await videoCodec(source,signal),'mpeg4');
+  const converted=await convertVideoToH264(root,source,signal);
+  assert.equal(await videoCodec(converted,signal),'h264');
+  const {stderr}=await run(ffmpeg,['-hide_banner','-i',converted],{windowsHide:true}).catch(error=>error);
+  assert.match(stderr,/Audio: aac/);assert.match(stderr,/Duration: 00:00:01/);
+});
 
 test('direct adaptive tracks download separately and complete as audible MP4',async t=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'awesome-direct-pair-'));

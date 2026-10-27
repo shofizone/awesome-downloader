@@ -105,3 +105,22 @@ export async function convertMedia(directory, files, format, signal) {
   await transcode(args, signal, `create ${format.toUpperCase()}`);
   return output;
 }
+
+// The codec of a file's first video stream as FFmpeg names it, e.g. 'h264' or 'av1'.
+export async function videoCodec(file, signal) {
+  // Without an output FFmpeg exits with an error, but it has printed the stream list.
+  const { stderr } = await runMedia(ffmpegExecutable(), ['-hide_banner', '-nostdin', '-i', file], signal);
+  return /Stream #\d+:\d+\S*: Video: (\w+)/.exec(stderr)?.[1] ?? null;
+}
+
+// Re-encodes the video track to H.264, which every player plays, and copies the audio.
+// bitsPerSecond is the chosen H.264 format's bitrate, so the result is about the size
+// of a direct H.264 download; without it a fixed quality is used.
+export async function convertVideoToH264(directory, input, signal, bitsPerSecond) {
+  const output = path.join(directory, 'converted-h264.mp4');
+  const rate = bitsPerSecond ? ['-b:v', String(bitsPerSecond), '-maxrate', String(bitsPerSecond * 2), '-bufsize', String(bitsPerSecond * 4)] : null;
+  // macOS encodes in hardware with VideoToolbox, which has no -crf; use a fixed rate instead.
+  const encoder = process.platform === 'darwin' ? ['-c:v', 'h264_videotoolbox', ...(rate || ['-b:v', '6000000'])] : ['-c:v', 'libx264', '-preset', 'veryfast', ...(rate || ['-crf', '21'])];
+  await transcode(['-nostdin','-v','error','-y','-i',input,'-map','0:v:0','-map','0:a:0?',...encoder,'-pix_fmt','yuv420p','-tag:v','avc1','-c:a','copy','-movflags','+faststart',output], signal, 'convert the video to H.264');
+  return output;
+}
