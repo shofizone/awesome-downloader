@@ -22,6 +22,16 @@ test('a video track in another codec is detected and converted to H.264',async t
   const {stderr}=await run(ffmpeg,['-hide_banner','-i',converted],{windowsHide:true}).catch(error=>error);
   assert.match(stderr,/Audio: aac/);assert.match(stderr,/Duration: 00:00:01/);
 });
+test('an AV1 video track is converted to H.264',async t=>{
+  const run=promisify(execFile);
+  // The Windows ffmpeg-static build has no AV1 encoder to create the fixture.
+  if(!/libsvtav1/.test((await run(ffmpeg,['-hide_banner','-encoders'],{windowsHide:true})).stdout))return t.skip('no AV1 encoder in this FFmpeg build');
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'awesome-av1-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  const source=path.join(root,'combined.mp4'),{signal}=new AbortController();
+  await run(ffmpeg,['-v','error','-f','lavfi','-i','testsrc=s=160x96:r=10:d=1','-f','lavfi','-i','sine=f=440:d=1','-c:v','libsvtav1','-c:a','aac','-shortest',source],{windowsHide:true});
+  assert.equal(await videoCodec(source,signal),'av1');
+  assert.equal(await videoCodec(await convertVideoToH264(root,source,signal,200000),signal),'h264');
+});
 
 test('direct adaptive tracks download separately and complete as audible MP4',async t=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'awesome-direct-pair-'));

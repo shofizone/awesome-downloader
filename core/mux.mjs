@@ -119,8 +119,9 @@ export async function videoCodec(file, signal) {
 export async function convertVideoToH264(directory, input, signal, bitsPerSecond) {
   const output = path.join(directory, 'converted-h264.mp4');
   const rate = bitsPerSecond ? ['-b:v', String(bitsPerSecond), '-maxrate', String(bitsPerSecond * 2), '-bufsize', String(bitsPerSecond * 4)] : null;
-  // macOS encodes in hardware with VideoToolbox, which has no -crf; use a fixed rate instead.
-  const encoder = process.platform === 'darwin' ? ['-c:v', 'h264_videotoolbox', ...(rate || ['-b:v', '6000000'])] : ['-c:v', 'libx264', '-preset', 'veryfast', ...(rate || ['-crf', '21'])];
+  // macOS encodes with VideoToolbox, which has no -crf; use a fixed rate instead.
+  // allow_sw falls back to Apple's software encoder where there is no hardware one (VMs).
+  const encoder = process.platform === 'darwin' ? ['-c:v', 'h264_videotoolbox', '-allow_sw', '1', ...(rate || ['-b:v', '6000000'])] : ['-c:v', 'libx264', '-preset', 'veryfast', ...(rate || ['-crf', '21'])];
   await transcode(['-nostdin','-v','error','-y','-i',input,'-map','0:v:0','-map','0:a:0?',...encoder,'-pix_fmt','yuv420p','-tag:v','avc1','-c:a','copy','-movflags','+faststart',output], signal, 'convert the video to H.264');
   return output;
 }

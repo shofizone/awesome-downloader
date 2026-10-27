@@ -114,7 +114,10 @@ if (process.argv.includes('--native-host')) {
               await new Promise((resolve,reject)=>require('node:child_process').execFile(path.join(process.env.SystemRoot||'C:\\Windows','System32','OpenWith.exe'),[d.path],{windowsHide:true},error=>error?reject(error):resolve()));
             } else if (isMac) {
               // macOS has no system "Open With" window to launch; let the user pick an application.
-              const choice = await dialog.showOpenDialog(window, { title: 'Open with', defaultPath: '/Applications', filters: [{ name: 'Applications', extensions: ['app'] }], properties: ['openFile'] });
+              // Attach it to the window that was clicked: the main window may be hidden.
+              const options = { title: 'Open with', defaultPath: '/Applications', filters: [{ name: 'Applications', extensions: ['app'] }], properties: ['openFile'] };
+              const parent = BrowserWindow.getFocusedWindow();
+              const choice = await (parent ? dialog.showOpenDialog(parent, options) : dialog.showOpenDialog(options));
               if (choice.canceled) return;
               await new Promise((resolve,reject)=>require('node:child_process').execFile('/usr/bin/open',['-a',choice.filePaths[0],d.path],error=>error?reject(error):resolve()));
             } else {
