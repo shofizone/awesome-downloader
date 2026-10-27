@@ -2,8 +2,9 @@
 
 ## Download
 
-Windows 10/11 and Linux x64 on Intel/AMD PCs are the intended targets. Native ARM
-builds are not provided. This is preview software; YouTube speed and
+Windows 10/11 and Linux x64 on Intel/AMD PCs, and macOS 12 or later on Apple
+Silicon or Intel Macs, are the intended targets. Native ARM builds for Windows
+and Linux are not provided. This is preview software; YouTube speed and
 compatibility vary.
 
 ### Windows
@@ -50,6 +51,35 @@ The installers are written to `release/`:
 
 Linux builds are unsigned. Verify any binary you did not build yourself.
 
+### macOS
+
+Use a macOS build made from this source. With Node.js 22 or newer, run:
+
+```sh
+npm ci
+npm run fetch:yt-dlp
+npm run dist:mac
+```
+
+`fetch:yt-dlp` downloads the pinned, checksum-verified yt-dlp so YouTube page
+links work; it is optional. The disk images are written to `release/`:
+
+- **Awesome-Downloader-0.1.0-macOS-arm64.dmg** for Apple Silicon Macs (M1 and later)
+- **Awesome-Downloader-0.1.0-macOS-x64.dmg** for Intel Macs
+
+Open the disk image for your Mac and drag **Awesome Downloader** into
+**Applications**, then launch it from there. If you open it from somewhere else,
+the app offers to move itself into Applications: browser integration starts the
+app from where it is installed, so a copy run from the disk image stops working
+once the disk image is ejected.
+
+These builds are ad-hoc signed, not notarized by Apple. A copy you built yourself
+opens normally. A copy downloaded from somewhere else is blocked on first launch:
+open **System Settings → Privacy & Security** and click **Open Anyway**, or run
+`xattr -dr com.apple.quarantine "/Applications/Awesome Downloader.app"` if you
+trust where it came from. Builds signed with a Developer ID and notarized (see
+[RELEASING.md](RELEASING.md)) open without this step.
+
 ## Enable video buttons (Chrome / Chromium / Edge)
 
 The browser extension adds **Download this video** buttons to supported web
@@ -75,6 +105,9 @@ add it once to each browser you use:
 6. Press **Ctrl+L** to select the folder window's address bar at the top. Press
    **Ctrl+V** to paste the extension folder path copied in step 2, then press
    **Enter**. Do not paste into the browser's web address bar or the Search box.
+   On macOS, press **⌘⇧G** to open **Go to Folder**, press **⌘V** to paste the
+   path, then press **Return**. The folder is hidden in Finder because its name
+   starts with a dot; Go to Folder opens it anyway.
 7. Click **Select Folder** (some versions say **Select**) at the bottom of that
    folder window. Choose the **extension folder itself**, not a file inside it
    and not its `icons` subfolder.
@@ -93,11 +126,12 @@ The exact location for your computer is displayed under **Included browser
 extension folder** in the app. A normal installed copy uses:
 
 - Windows: `C:\Users\YOUR-WINDOWS-USERNAME\.awesome-downloader\BrowserIntegration\extension`
+- macOS: `/Users/YOUR-MAC-USERNAME/.awesome-downloader/BrowserIntegration/extension`
 - Linux: `/home/YOUR-LINUX-USERNAME/.awesome-downloader/BrowserIntegration/extension`
 
 Those paths are examples; **Copy extension folder path** copies your actual path.
-**Show extension folder** opens that folder in File Explorer (Windows) or your
-file manager (Linux) if you want to inspect it. It contains `manifest.json` and an
+**Show extension folder** opens that folder in File Explorer (Windows), Finder
+(macOS) or your file manager (Linux) if you want to inspect it. It contains `manifest.json` and an
 `icons` folder. You select the enclosing `extension` folder, not `manifest.json`.
 Do not move or delete this folder after loading it into your browser.
 
@@ -115,6 +149,12 @@ Do not move or delete this folder after loading it into your browser.
   `~/.config/microsoft-edge/NativeMessagingHosts` (Edge), or
   `~/.mozilla/native-messaging-hosts` (Firefox). Keep the browser and the app in
   the same user account.
+- **macOS native messaging:** the app writes `com.awesome.downloader.json` to the
+  `NativeMessagingHosts` folder of `~/Library/Application Support/Google/Chrome`,
+  `.../Chromium`, `.../Microsoft Edge` or `.../Mozilla`. It points at
+  `~/.awesome-downloader/BrowserIntegration/integration/native-host.sh`, which
+  starts the app from Applications. If you moved the app, open it once from its
+  new location so the connector is updated.
 - **No video button:** Refresh the video page after setup and start playback.
   Some sites and protected media are not supported.
 - **No Developer mode or Load unpacked button:** A workplace or school may
@@ -140,7 +180,8 @@ Firefox does not yet have equivalent verified YouTube support.
 - Start Download opens progress. On completion, use **Open** or **Open folder**.
 - Repeated clicks reuse the active download. Cancel closes the progress window.
 
-Closing the main window keeps the app in the tray. Use **Tasks → Exit** to quit.
+Closing the main window keeps the app in the tray (the menu bar on macOS). Use
+**Tasks → Exit** to quit, or **Awesome Downloader → Quit** (⌘Q) on macOS.
 Paused/queued YouTube sessions may expire; reselect the video in the browser if
 resuming later fails. DRM, private/sign-in-required videos, and live streams are
 not supported. Slow YouTube transfers remain a known limitation.
@@ -153,6 +194,9 @@ extension on the browser's extensions page and refresh your video tabs.
 - **Windows:** uninstall through Windows **Settings → Apps**.
 - **Linux (deb):** `sudo apt remove awesome-downloader`.
 - **Linux (AppImage):** delete the AppImage file.
+- **macOS:** quit the app and drag **Awesome Downloader** from Applications to the
+  Trash. Delete `com.awesome.downloader.json` from the browsers'
+  `NativeMessagingHosts` folders listed above if you want to remove the connector.
 
 Remove the browser extension separately. Downloads and the `.awesome-downloader`
 folder in your user folder are not automatically deleted. There is no automatic

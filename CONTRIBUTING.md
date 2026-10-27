@@ -10,7 +10,7 @@ maintainer before coding. Propose features outside the backlog for approval firs
 
 ## Development
 
-Use Windows x64 or Linux x64 and Node.js 22 or newer with npm. Fork this
+Use Windows x64, macOS or Linux x64 and Node.js 22 or newer with npm. Fork this
 repository, clone your fork, and create a branch for one focused change.
 
 ```sh
@@ -20,12 +20,17 @@ npm start
 ```
 
 The legacy manual YouTube URL resolver needs the optional executable described
-in THIRD-PARTY.md; the browser-capture path does not invoke it. On Linux, install
-`yt-dlp` from your package manager or place an executable at `vendor/yt-dlp`.
+in THIRD-PARTY.md; the browser-capture path does not invoke it. On Windows and
+macOS, `npm run fetch:yt-dlp` downloads the pinned release into `vendor/`. On Linux,
+install `yt-dlp` from your package manager or place an executable at `vendor/yt-dlp`.
 
 Run `npm run package` to build the unpacked app or `npm run dist` for a local
 Windows installer. On Linux, use `npm run package:linux` and `npm run dist:linux`
-for an AppImage and Debian package. These commands do not publish a release.
+for an AppImage and Debian package. On macOS, use `npm run package:mac` and
+`npm run dist:mac` for Apple Silicon and Intel DMGs. These commands do not publish
+a release. If VS Code runs your terminal, unset `ELECTRON_RUN_AS_NODE` before
+`npm start` (`env -u ELECTRON_RUN_AS_NODE npm start`); VS Code sets it, and it makes
+Electron exit at once.
 Review [release requirements](docs/RELEASING.md) before distributing binaries.
 
 ## Pull requests
