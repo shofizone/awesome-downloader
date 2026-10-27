@@ -23,7 +23,7 @@
     "fetch:yt-dlp": "node scripts/fetch-yt-dlp.mjs"
   },
   "devDependencies": {
-    "electron": "44.9.0",
+    "electron": "44.9.3",
     "electron-builder": "^26.15.3",
     "playwright": "^1.58.2"
   },
