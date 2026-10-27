@@ -15,7 +15,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # The pinned, checksum-verified yt-dlp for YouTube page links (see THIRD-PARTY.md).
+      - run: npm run fetch:yt-dlp -- win32
       - run: npm run dist
+      - name: Check that yt-dlp is bundled
+        shell: powershell
+        run: if (-not (Test-Path release/win-unpacked/resources/tools/yt-dlp.exe)) { throw 'yt-dlp.exe is missing from the app' }
       - name: Create SHA-256 file
         shell: powershell
         run: (Get-FileHash release/Awesome-Downloader-Setup.exe -Algorithm SHA256).Hash.ToLower() + '  Awesome-Downloader-Setup.exe' | Set-Content release/SHA256SUMS.txt
@@ -48,5 +53,65 @@ jobs:
             release/Awesome-Downloader-*-Linux-*.AppImage
             release/Awesome-Downloader-*-Linux-*.deb
             release/SHA256SUMS-linux.txt
+          if-no-files-found: error
+          retention-days: 7
+  build-mac:
+    # Each architecture is built and tested on its own hardware, so the x64 app is
+    # checked on a real Intel Mac rather than cross-built.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+            lipo: arm64
+          - runner: macos-15-intel
+            arch: x64
+            lipo: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      # Optional. Without these the DMG is ad-hoc signed and not notarized
+      # (see docs/RELEASING.md for how to add them).
+      CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # yt-dlp_macos is a universal binary, so the same file serves both apps.
+      - run: npm run fetch:yt-dlp -- darwin
+      - name: Build DMG
+        run: |
+          if [ -n "$CSC_LINK" ]; then
+            npx electron-builder --mac dmg --${{ matrix.arch }} --publish never -c.mac.notarize=true
+          else
+            npx electron-builder --mac dmg --${{ matrix.arch }} --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false
+          fi
+      - name: Check architectures, signature and bundled tools
+        run: |
+          app="$(ls -d release/mac*/'Awesome Downloader.app')"
+          for binary in "Contents/MacOS/Awesome Downloader" Contents/Resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg; do
+            echo "$binary: $(lipo -archs "$app/$binary")"
+            test "$(lipo -archs "$app/$binary")" = "${{ matrix.lipo }}"
+          done
+          test -x "$app/Contents/Resources/tools/yt-dlp"
+          codesign --verify --deep --strict "$app"
+          if [ -n "$CSC_LINK" ]; then spctl --assess --type execute --verbose "$app"; fi
+      - name: Create SHA-256 file
+        run: (cd release && shasum -a 256 Awesome-Downloader-*-macOS-${{ matrix.arch }}.dmg > SHA256SUMS-macOS-${{ matrix.arch }}.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-release-candidate
+          path: |
+            release/Awesome-Downloader-*-macOS-${{ matrix.arch }}.dmg
+            release/SHA256SUMS-macOS-${{ matrix.arch }}.txt
           if-no-files-found: error
           retention-days: 7
