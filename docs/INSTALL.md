@@ -155,6 +155,12 @@ Do not move or delete this folder after loading it into your browser.
   `~/.awesome-downloader/BrowserIntegration/integration/native-host.sh`, which
   starts the app from Applications. If you moved the app, open it once from its
   new location so the connector is updated.
+- **“Specified native messaging host not found” or “Access to the specified
+  native messaging host is forbidden”:** keep Awesome Downloader running, then
+  click the reload icon on **Awesome Downloader Integration** in the browser's
+  Extensions page and refresh the video page. Its ID should be
+  `khkgokpckbhnbljflaohigfcfeiojooo`; if it is different, remove it and load the
+  folder shown under **Included browser extension folder** again.
 - **No video button:** Refresh the video page after setup and start playback.
   Some sites and protected media are not supported.
 - **No Developer mode or Load unpacked button:** A workplace or school may

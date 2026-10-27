@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
-const { nativeHostManifestPath, registerBrowser, connectInstalledBrowsers, prepareNativeHost, unpackedExtensionId } = require('../desktop/browser-registration.cjs');
+const { nativeHostManifestPath, registerBrowser, connectInstalledBrowsers, prepareNativeHost, unpackedExtensionId, includedExtensionIds } = require('../desktop/browser-registration.cjs');
 
 const posix = { skip: process.platform === 'win32' };
 const id = 'abcdefghijklmnopabcdefghijklmnop';
@@ -77,6 +77,14 @@ test('macOS browser scan finds the unpacked extension in Chrome and Edge profile
 test('an unpacked extension ID is derived from its folder path as Chromium does', () => {
   // Checked against Chromium loading the extension from this folder.
   assert.equal(unpackedExtensionId('/private/tmp/Awesome Downloader id check/extension'), 'lgehngogdpkgokbpaledodmmdldadjff');
+});
+
+test('the included extension has a fixed ID from its manifest key on every platform', async () => {
+  // Chromium assigned this ID when the extension was loaded from two different folders.
+  const extension = path.join(__dirname, '..', 'extension');
+  assert.deepEqual(await includedExtensionIds(extension, 'win32'), ['khkgokpckbhnbljflaohigfcfeiojooo']);
+  // Elsewhere the folder ID is allowed too, for a copy loaded before the key existed.
+  assert.deepEqual(await includedExtensionIds(extension, 'darwin'), ['khkgokpckbhnbljflaohigfcfeiojooo', unpackedExtensionId(await fs.realpath(extension))]);
 });
 
 test('macOS registers the included extension even when browser profiles cannot be read', posix, async t => {

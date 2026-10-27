@@ -14,8 +14,10 @@ installation from its own store or the Chrome Web Store.
 Run `powershell -File integration/package-extension.ps1` from the project root on
 Windows, or zip `extension/` on macOS or Linux after replacing `manifest.json` with the
 Firefox variant when needed. The ZIP must have manifest.json at the archive root
-and exclude tests and the Firefox-specific manifest. It is a store submission
-package, not a replacement for a reviewed store listing.
+and exclude tests and the Firefox-specific manifest. Remove the `key` field from
+the ZIP's `manifest.json`: it gives every unpacked copy the same extension ID
+(`khkgokpckbhnbljflaohigfcfeiojooo`), but the store assigns its own key and ID. It
+is a store submission package, not a replacement for a reviewed store listing.
 
 Publish it through the owner's Chrome Web Store developer account. Complete the
 store's privacy and permission disclosures based on the actual extension, and

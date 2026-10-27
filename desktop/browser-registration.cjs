@@ -82,17 +82,28 @@ function browserProfileRoots(platform, { localAppData, home }) {
   const config = linuxConfigHome(home);
   return [['Chrome', path.join(config, 'google-chrome')], ['Chromium', path.join(config, 'chromium')], ['Edge', path.join(config, 'microsoft-edge')]];
 }
-// Chromium gives an unpacked extension without a "key" an ID derived from its folder on
-// macOS and Linux: the first 32 hex digits of the SHA-256 of its absolute path, as a-p.
-function unpackedExtensionId(directory) {
-  return require('node:crypto').createHash('sha256').update(directory).digest('hex').slice(0, 32).replace(/[0-9a-f]/g, digit => 'abcdefghijklmnop'[parseInt(digit, 16)]);
+// Chromium extension IDs are the first 32 hex digits of a SHA-256, written as a-p.
+const chromiumId = bytes => require('node:crypto').createHash('sha256').update(bytes).digest('hex').slice(0, 32).replace(/[0-9a-f]/g, digit => 'abcdefghijklmnop'[parseInt(digit, 16)]);
+// Without a manifest "key", an unpacked extension's ID comes from its folder's absolute
+// path (on macOS and Linux; Windows hashes the path differently).
+const unpackedExtensionId = directory => chromiumId(directory);
+// IDs the included extension can have. Its manifest "key" fixes the ID wherever it is
+// loaded from; a copy loaded before the key existed keeps its folder ID until reloaded.
+async function includedExtensionIds(directory, platform = process.platform) {
+  const ids = [];
+  try {
+    const { key } = JSON.parse(await fs.readFile(path.join(directory, 'manifest.json'), 'utf8'));
+    if (typeof key === 'string' && key) ids.push(chromiumId(Buffer.from(key, 'base64')));
+  } catch { /* No readable manifest: only the folder ID applies. */ }
+  if (platform !== 'win32') ids.push(unpackedExtensionId(await fs.realpath(directory)));
+  return ids;
 }
 // Read only extension registrations, never browser history, cookies, or page data.
 async function connectInstalledBrowsers({ dataDirectory, integrationRoot, localAppData = process.env.LOCALAPPDATA, platform = process.platform, home = os.homedir() }) {
   const results = [];
   // macOS stops other apps from reading browser profiles, so the scan below can find
-  // nothing there. The included extension's ID follows from its folder; allow it too.
-  const ownId = platform === 'win32' ? null : unpackedExtensionId(await fs.realpath(path.join(integrationRoot, 'extension')));
+  // nothing there. The included extension's own IDs are known in advance; allow them too.
+  const ownIds = await includedExtensionIds(path.join(integrationRoot, 'extension'), platform);
   for (const [browser, root] of browserProfileRoots(platform, { localAppData, home })) {
     // Only browsers this user has run have a folder.
     try { await fs.stat(root); } catch { continue; }
@@ -119,7 +130,7 @@ async function connectInstalledBrowsers({ dataDirectory, integrationRoot, localA
       }
     }
     const detected = ids.size > 0;
-    if (ownId) ids.add(ownId);
+    for (const id of ownIds) ids.add(id);
     if (ids.size) {
       // Multiple profiles may assign different IDs to this same unpacked extension.
       const [extensionId, ...extraIds] = ids;
@@ -144,4 +155,4 @@ async function prepareNativeHost(integrationRoot, executable, platform = process
   }
   await fs.writeFile(path.join(folder, 'runtime-path.txt'), executable, 'utf8');
 }
-module.exports = { registerBrowser, connectInstalledBrowsers, prepareNativeHost, nativeHostManifestPath, unpackedExtensionId, BROWSERS };
+module.exports = { registerBrowser, connectInstalledBrowsers, prepareNativeHost, nativeHostManifestPath, unpackedExtensionId, includedExtensionIds, BROWSERS };
