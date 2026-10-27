@@ -55,6 +55,14 @@
       clientVersion:ytcfg?.get?.('INNERTUBE_CONTEXT_CLIENT_VERSION')||ytcfg?.data_?.INNERTUBE_CONTEXT_CLIENT_VERSION||'',formats
     });
   }
+  // H.264 plays in QuickTime, Windows players and every browser. AV1 and VP9 need newer
+  // hardware or players (QuickTime plays AV1 only on M3 Macs or newer), so they are
+  // chosen only when a quality has no H.264 version, and are labelled when they are.
+  const isH264=f=>/avc1/i.test(f.mimeType);
+  const codecName=f=>/av01/i.test(f.mimeType)?'AV1':/vp0?9/i.test(f.mimeType)?'VP9':'';
+  const qualityLabel=f=>{const codec=isH264(f)?'':codecName(f);return f.height+'p'+(f.fps>30?' '+f.fps+'fps':'')+(codec?' · '+codec:'');};
+  // Best resolution and frame rate first; within the same one, H.264 before other codecs.
+  const byQuality=(a,b)=>b.height-a.height||b.fps-a.fps||Number(isH264(b))-Number(isH264(a))||b.bitrate-a.bitrate;
   function choices(data, observed = []) {
     if (!data) return [];
     const formats = data.formats.map(f => {
@@ -67,18 +75,18 @@
     const result=[], seen=new Set();
     const title=data.title.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').slice(0,170);
     const audio=formats.filter(f=>/^audio\/mp4/i.test(f.mimeType) && (!f.audioTrack || f.audioTrack.audioIsDefault)).sort((a,b)=>b.bitrate-a.bitrate)[0];
-    for(const f of formats.filter(f=>/^video\/mp4/i.test(f.mimeType)&&f.height).sort((a,b)=>b.height-a.height||b.fps-a.fps||b.bitrate-a.bitrate)){
+    for(const f of formats.filter(f=>/^video\/mp4/i.test(f.mimeType)&&f.height).sort(byQuality)){
       const muxed=f.audioQuality||/mp4a/i.test(f.mimeType);if(!muxed&&!audio)continue;
       const key=f.height+':'+f.fps;if(seen.has(key))continue;seen.add(key);
-      result.push({url:f.url,audioUrl:muxed?undefined:audio.url,provider:'youtube',format:'MP4',outputFormat:'mp4',quality:f.height+'p'+(f.fps>30?' '+f.fps+'fps':''),audioState:'Video + audio',title:data.title,filename:title+'.mp4',bitrate:f.bitrate});
+      result.push({url:f.url,audioUrl:muxed?undefined:audio.url,provider:'youtube',format:'MP4',outputFormat:'mp4',quality:qualityLabel(f),audioState:'Video + audio',title:data.title,filename:title+'.mp4',bitrate:f.bitrate});
     }
     if(audio)result.push({url:audio.url,provider:'youtube',format:'MP3',outputFormat:'mp3',quality:'Audio',audioState:'Audio only',title:data.title,filename:title+'.mp3'});
     if(!data.sabrUrl||!data.ustreamerConfig)return result;
     const sabrAudio=data.formats.filter(f=>/^audio\/mp4/i.test(f.mimeType)&&(!f.audioTrack||f.audioTrack.audioIsDefault)&&!f.isDrc&&!f.isVb).sort((a,b)=>b.bitrate-a.bitrate)[0];
     if(!sabrAudio)return result;
-    for(const f of data.formats.filter(f=>/^video\/mp4/i.test(f.mimeType)&&f.height&&!f.audioQuality&&!/mp4a/i.test(f.mimeType)).sort((a,b)=>b.height-a.height||b.fps-a.fps||b.bitrate-a.bitrate)){
+    for(const f of data.formats.filter(f=>/^video\/mp4/i.test(f.mimeType)&&f.height&&!f.audioQuality&&!/mp4a/i.test(f.mimeType)).sort(byQuality)){
       const key=f.height+':'+f.fps;if(seen.has(key))continue;seen.add(key);
-      result.push({url:data.sabrUrl,provider:'youtube',format:'MP4',outputFormat:'mp4',quality:f.height+'p'+(f.fps>30?' '+f.fps+'fps':''),audioState:'Video + audio',title:data.title,filename:title+'.mp4',bitrate:f.bitrate,sabrSelection:{videoItag:f.itag,audioItag:sabrAudio.itag}});
+      result.push({url:data.sabrUrl,provider:'youtube',format:'MP4',outputFormat:'mp4',quality:qualityLabel(f),audioState:'Video + audio',title:data.title,filename:title+'.mp4',bitrate:f.bitrate,sabrSelection:{videoItag:f.itag,audioItag:sabrAudio.itag}});
     }
     if(!result.some(item=>item.format==='MP3'))result.push({url:data.sabrUrl,provider:'youtube',format:'MP3',outputFormat:'mp3',quality:'Audio',audioState:'Audio only',title:data.title,filename:title+'.mp3',bitrate:sabrAudio.bitrate,sabrSelection:{audioItag:sabrAudio.itag}});
     return result;

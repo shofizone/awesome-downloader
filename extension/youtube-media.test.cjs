@@ -50,3 +50,14 @@ test('SABR avoids unobserved direct URLs and does not treat muxed itags as adapt
  assert.equal(choices(data,[url(18)])[0].url,url(18));
  assert.equal(choices(data,[url(18)])[0].sabrSelection,undefined);
 });
+test('H.264 is preferred at each quality and other codecs are labelled',()=>{
+ const video=(itag,codecs,height,bitrate)=>({itag,mimeType:`video/mp4; codecs="${codecs}"`,height,bitrate,lastModified:'1',approxDurationMs:'10000'});
+ const data=playerData({videoDetails:{videoId:'wLdZWyLOJCI',title:'Captured'},streamingData:{serverAbrStreamingUrl:'https://r1.googlevideo.com/videoplayback?id=asset&sabr=1&expire=9999999999',adaptiveFormats:[
+  // YouTube can list AV1 above H.264 at the same height, but QuickTime cannot play AV1 before M3 Macs.
+  video(399,'av01.0.08M.08',1080,4200000),video(137,'avc1.640028',1080,3000000),video(401,'av01.0.12M.08',2160,12000000),
+  {itag:140,mimeType:'audio/mp4; codecs="mp4a.40.2"',audioQuality:'AUDIO_QUALITY_MEDIUM',bitrate:128000,lastModified:'1',approxDurationMs:'10000'}
+ ]},playerConfig:{mediaCommonConfig:{mediaUstreamerRequestConfig:{videoPlaybackUstreamerConfig:'AQID'}}}});
+ const result=choices(data),fullHd=result.find(c=>c.quality.startsWith('1080p')),ultraHd=result.find(c=>c.quality.startsWith('2160p'));
+ assert.equal(fullHd.quality,'1080p');assert.equal(fullHd.sabrSelection.videoItag,137);
+ assert.equal(ultraHd.quality,'2160p · AV1');assert.equal(ultraHd.sabrSelection.videoItag,401);
+});
