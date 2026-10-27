@@ -75,7 +75,9 @@ export async function youtubeFormats(input) {
   if(Date.now()<rateLimitUntil)throw youtubeError('HTTP Error 429');
   if(active>=2)throw new Error('Already checking two videos. Try again shortly.');
   active++;
-  const promise=run(['--skip-download','--dump-single-json',url],{timeout:45000}).then(raw=>choicesFromInfo(JSON.parse(raw),url)).finally(()=>{active--;});
+  // yt-dlp unpacks itself on first use and solves YouTube's player challenge,
+  // which can take well over 45 s on a slow connection.
+  const promise=run(['--skip-download','--dump-single-json',url],{timeout:120000}).then(raw=>choicesFromInfo(JSON.parse(raw),url)).finally(()=>{active--;});
   cache.set(url,{promise,expires:Date.now()+120000});if(cache.size>20)cache.delete(cache.keys().next().value);
   try{return await promise;}catch(e){
     if(e.code==='YOUTUBE_RATE_LIMIT')rateLimitUntil=Date.now()+120000;

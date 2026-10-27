@@ -6,6 +6,7 @@ if (process.argv.includes('--native-host')) {
 } else {
   const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, nativeImage, Notification } = require('electron');
   app.setName('Awesome Downloader');
+  const isMac = process.platform === 'darwin';
   // AppData writes can be virtualized when launched by an MSIX development app.
   // Chrome launched normally must see the same connector, bridge, and history.
   const sharedDataDirectory = path.join(app.getPath('home'), '.awesome-downloader');
@@ -19,6 +20,13 @@ if (process.argv.includes('--native-host')) {
   else {
     app.on('second-instance', () => { window?.show(); window?.focus(); });
     app.whenReady().then(async () => {
+      // Browsers start the connector from wherever the app is. A copy opened from
+      // the disk image or Downloads stops working once it is ejected or moved.
+      if (isMac && app.isPackaged && !app.isInApplicationsFolder()) {
+        const { response } = await dialog.showMessageBox({ type: 'question', buttons: ['Move to Applications', 'Not now'], defaultId: 0, cancelId: 1, message: 'Move Awesome Downloader to your Applications folder?', detail: 'Browser integration starts the app from where it is installed. A copy opened from the disk image or the Downloads folder stops working once it is ejected or moved.' });
+        // On success the app quits and reopens from Applications.
+        if (response === 0) { try { if (app.moveToApplicationsFolder()) return; } catch (error) { dialog.showErrorBox('Could not move Awesome Downloader', error.message); } }
+      }
       const fs = require('node:fs/promises');
       const history = path.join(sharedDataDirectory, 'downloads.json');
       try {
@@ -104,6 +112,11 @@ if (process.argv.includes('--native-host')) {
             if (d.status !== 'complete' || !d.path) throw new Error('This download has not finished.');
             if (process.platform === 'win32') {
               await new Promise((resolve,reject)=>require('node:child_process').execFile(path.join(process.env.SystemRoot||'C:\\Windows','System32','OpenWith.exe'),[d.path],{windowsHide:true},error=>error?reject(error):resolve()));
+            } else if (isMac) {
+              // macOS has no system "Open With" window to launch; let the user pick an application.
+              const choice = await dialog.showOpenDialog(window, { title: 'Open with', defaultPath: '/Applications', filters: [{ name: 'Applications', extensions: ['app'] }], properties: ['openFile'] });
+              if (choice.canceled) return;
+              await new Promise((resolve,reject)=>require('node:child_process').execFile('/usr/bin/open',['-a',choice.filePaths[0],d.path],error=>error?reject(error):resolve()));
             } else {
               // Linux desktops have no universal "Open with" dialog; use the
               // registered default application instead.
@@ -146,6 +159,8 @@ if (process.argv.includes('--native-host')) {
       desktopReady();
       const command = name => () => window.webContents.send('downloader:command', name);
       Menu.setApplicationMenu(Menu.buildFromTemplate([
+        // macOS expects the app menu first, and text fields need the Edit menu for ⌘C/⌘V.
+        ...(isMac ? [{ role: 'appMenu' }, { role: 'editMenu' }] : []),
         { label: 'Tasks', submenu: [ { label: 'Add new download…', accelerator: 'CmdOrCtrl+N', click: command('add') }, { label: 'Add batch download…', click: command('add') }, { label: 'Add batch download from clipboard', click: command('paste') }, { type: 'separator' },
           { label: 'Export', submenu: [{ label: 'To text file…', click: async () => {
             const result = await dialog.showSaveDialog(window, { defaultPath: 'downloads.txt', filters: [{ name: 'URL list', extensions: ['txt'] }] });
@@ -163,8 +178,8 @@ if (process.argv.includes('--native-host')) {
               await dialog.showMessageBox(window, { message: `Imported ${urls.length} downloads.`, detail: 'The imported downloads are paused. Select Start Queue to begin.' });
             } catch (e) { dialog.showErrorBox('Could not import downloads', e.message); }
           } }] },
-          { type: 'separator' }, { label: 'Exit', click: () => app.quit() } ] },
-        { label: 'File', submenu: [ { label: 'Download properties…', click: command('details') }, { label: 'Remove selected', accelerator: 'Delete', click: command('remove') }, { label: 'Remove completed downloads', click: command('removeCompleted') } ] },
+          ...(isMac ? [] : [{ type: 'separator' }, { label: 'Exit', click: () => app.quit() }]) ] },
+        { label: 'File', submenu: [ { label: 'Download properties…', click: command('details') }, { label: 'Remove selected', accelerator: isMac ? 'Cmd+Backspace' : 'Delete', click: command('remove') }, { label: 'Remove completed downloads', click: command('removeCompleted') } ] },
         { label: 'Downloads', submenu: [ { label: 'Pause all', click: command('pauseAll') }, { label: 'Stop all', click: command('pauseAll') }, { type: 'separator' }, { label: 'Delete all completed', click: command('removeCompleted') }, { type: 'separator' }, { label: 'Find', accelerator: 'CmdOrCtrl+F', click: command('find') }, { type: 'separator' }, { label: 'Scheduler…', click: command('scheduler') }, { label: 'Start queue', click: command('resumeAll') }, { label: 'Stop queue', click: command('pauseAll') }, { label: 'Speed limiter…', click: command('settings') }, { type: 'separator' }, { label: 'Options…', click: command('settings') } ] },
         { label: 'View', submenu: [ { label: 'All downloads', click: command('all') }, { role: 'togglefullscreen' }, { type: 'separator' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'resetZoom' } ] },
         { label: 'Help', submenu: [ { label: 'Browser integration…', click: command('integration') }, { label: 'About Awesome Downloader', click: () => dialog.showMessageBox(window, { title: 'About Awesome Downloader', message: 'Awesome Downloader 0.1.0', detail: 'Desktop download manager with browser integration. Original implementation inspired by IDM. Full IDM feature parity is in development.' }) } ] }

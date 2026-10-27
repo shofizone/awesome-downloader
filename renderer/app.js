@@ -2,6 +2,7 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const api = window.downloader;
+const isMac = api.platform === 'darwin';
 const progressMode = new URLSearchParams(location.search).get('progress');
 if(progressMode)document.body.classList.add('progress-window');
 let state = { downloads: [], settings: {}, integration: {} }, selectedId = null, detailId = null, filter = 'all', category = '', searchTerm = '', sort = 'createdAt', ascending = false, visibleDownloads = [], toastTimer, unsubscribe, unsubscribeCommands;
@@ -23,6 +24,7 @@ const iconPaths = {
   stopqueue:['M2 2h23v24H2zM7 7h23v23H7z','M19 18h12v13H19z'],
   browser:['M16 3a13 13 0 1 0 0 26a13 13 0 0 0 0-26','M3 16h26M16 3c-8 8-8 18 0 26M16 3c8 8 8 18 0 26M6 8h20M6 24h20']
 };
+if (isMac) for (const node of $$('[title*="Ctrl+"]')) node.title = node.title.replaceAll('Ctrl+','⌘');
 for (const button of $$('[data-icon]')) { const svg = document.createElementNS('http://www.w3.org/2000/svg','svg'); svg.setAttribute('viewBox','0 0 34 34'); svg.setAttribute('aria-hidden','true'); for (const data of iconPaths[button.dataset.icon] || []) { const path = document.createElementNS('http://www.w3.org/2000/svg','path'); path.setAttribute('d',data); svg.append(path); } button.prepend(svg); }
 function element(tag,className,text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
 // Browser registration stays local and is performed by the trusted desktop bridge.
@@ -73,8 +75,13 @@ for(const text of [
   'Click Open Chrome extensions, Open Chromium extensions, or Open Edge extensions above. Your browser opens its Extensions page.',
   'On that browser page, turn on Developer mode. In Edge, you may need to expand the left menu to find it.',
   'Click Load unpacked on the Extensions page. A folder selection window opens.',
-  'In that folder selection window, press Ctrl+L to select its address bar at the top. Press Ctrl+V to paste the copied extension folder path, then press Enter. Do not paste into the browser’s web address bar or the Search box.',
-  'Click Select Folder (or Select) in the folder window. Select the extension folder itself; do not select an individual file or its icons subfolder.',
+  ...(isMac ? [
+    'In that folder selection window, press ⌘⇧G to open Go to Folder. Press ⌘V to paste the copied extension folder path, then press Return. Do not paste into the browser’s web address bar or the Search box.',
+    'Click Select in the folder window. Select the extension folder itself; do not select an individual file or its icons subfolder.'
+  ] : [
+    'In that folder selection window, press Ctrl+L to select its address bar at the top. Press Ctrl+V to paste the copied extension folder path, then press Enter. Do not paste into the browser’s web address bar or the Search box.',
+    'Click Select Folder (or Select) in the folder window. Select the extension folder itself; do not select an individual file or its icons subfolder.'
+  ]),
   'Check that Awesome Downloader Integration appears on the browser’s Extensions page and is switched on. Return here and wait for the connection message, then refresh your video page and play the video.'
 ]) steps.append(element('li','',text));
 const extensionFolderLabel=element('label','','Included browser extension folder:');extensionFolderLabel.htmlFor='extension-path';
@@ -82,7 +89,7 @@ const extensionFolderInput = $('#extension-path');
 const folderActions = element('div','transfer-buttons');
 for(const [label,action] of [['Copy extension folder path','copy'],['Show extension folder','folder']]) {
   const button = element('button','button',label); button.type='button';
-  button.addEventListener('click',async()=>{try{await call('browserSetup',{action});if(action==='copy')notify('Extension folder path copied. In the folder window opened by Load unpacked, press Ctrl+L, Ctrl+V, then Enter.');}catch(error){notify(messageOf(error),true);}});
+  button.addEventListener('click',async()=>{try{await call('browserSetup',{action});if(action==='copy')notify(isMac?'Extension folder path copied. In the folder window opened by Load unpacked, press ⌘⇧G, ⌘V, then Return.':'Extension folder path copied. In the folder window opened by Load unpacked, press Ctrl+L, Ctrl+V, then Enter.');}catch(error){notify(messageOf(error),true);}});
   folderActions.append(button);
 }
 installHelp.classList.add('browser-setup-guide');
@@ -160,7 +167,7 @@ commands.find = () => { $('.list-search').classList.add('visible'); $('#search')
 commands.details = () => { if (selectedId) showDetails(selectedId); };
 commands.remove = () => performAction(selected(),'remove');
 commands.all = () => setView('all');
-document.addEventListener('keydown', event => { if (event.ctrlKey && event.key.toLowerCase() === 'f') commands.find(); if (event.key === 'Escape') $('.list-search').classList.remove('visible'); });
+document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') commands.find(); if (event.key === 'Escape') $('.list-search').classList.remove('visible'); });
 $('#new-download').addEventListener('click',commands.add); $('#settings-button').addEventListener('click',openSettings); $('#integration-button').addEventListener('click',openIntegration); $('#scheduler-button').addEventListener('click',openScheduler); $('#pause-all').addEventListener('click',commands.pauseAll); $('#stop-queue').addEventListener('click',commands.pauseAll); $('#resume-all').addEventListener('click',commands.resumeAll); $('#remove-completed').addEventListener('click',removeCompleted);
 $('#resume-selected').addEventListener('click',() => { const d = selected(); if (d?.needsReview) { openReview(d.id); return; } performAction(d,d && ['failed','cancelled'].includes(statusOf(d)) ? 'retry' : 'resume'); }); $('#stop-selected').addEventListener('click',() => performAction(selected(),'pause')); $('#remove-selected').addEventListener('click',() => performAction(selected(),'remove')); $('#open-selected').addEventListener('click',() => performAction(selected(),'open')); $('#reveal-selected').addEventListener('click',() => performAction(selected(),'reveal')); $('#details-selected').addEventListener('click',() => { if (selectedId) showDetails(selectedId); });
 const detailDownload = () => state.downloads.find(d => d.id === detailId);
@@ -198,7 +205,7 @@ tableScroll.addEventListener('pointermove',event=>{
 });
 function finishMarquee(event){if(!selectionDrag||selectionDrag.pointerId!==event.pointerId)return;const moved=selectionDrag.moved,row=selectionDrag.row;try{tableScroll.releasePointerCapture(event.pointerId);}catch{}selectionDrag=null;selectionRectangle.hidden=true;if(moved){suppressRowClick=true;setTimeout(()=>{suppressRowClick=false;},0);}else if(!row)selectDownload(null);}
 tableScroll.addEventListener('pointerup',finishMarquee);tableScroll.addEventListener('pointercancel',finishMarquee);
-$('#table-scroll').addEventListener('keydown',event => { if (!visibleDownloads.length) return; const index = visibleDownloads.findIndex(d => d.id === selectedId); if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) { event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? visibleDownloads.length - 1 : Math.max(0,Math.min(visibleDownloads.length - 1,index + (event.key === 'ArrowDown' ? 1 : -1))); selectDownload(visibleDownloads[next].id); $$('.download-row').find(row => row.dataset.id === selectedId)?.scrollIntoView({block:'nearest'}); } if (event.key === 'Enter' && selectedId) showDetails(selectedId); if (event.key === 'Delete') performAction(selected(),'remove'); });
+$('#table-scroll').addEventListener('keydown',event => { if (!visibleDownloads.length) return; const index = visibleDownloads.findIndex(d => d.id === selectedId); if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) { event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? visibleDownloads.length - 1 : Math.max(0,Math.min(visibleDownloads.length - 1,index + (event.key === 'ArrowDown' ? 1 : -1))); selectDownload(visibleDownloads[next].id); $$('.download-row').find(row => row.dataset.id === selectedId)?.scrollIntoView({block:'nearest'}); } if (event.key === 'Enter' && selectedId) showDetails(selectedId); if (event.key === 'Delete' || (isMac && event.metaKey && event.key === 'Backspace')) performAction(selected(),'remove'); });
 $('#dismiss-toast').addEventListener('click',() => { $('#toast').hidden = true; }); $$('[data-close]').forEach(button => button.addEventListener('click',() => { const dialog = button.closest('dialog'); dialog.close(); if (dialog.id === 'add-dialog') dismissReview(); })); $('#add-dialog').addEventListener('cancel',() => dismissReview()); document.addEventListener('keydown',event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); if (!$$('dialog[open]').length) openAdd(); } if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && !$$('dialog[open]').length) { event.preventDefault(); $('#search').focus(); } });
 $('#paste-button').addEventListener('click',async () => { try { $('#download-urls').value = await call('clipboard'); $('#download-urls').focus(); } catch (error) { $('#add-error').textContent = messageOf(error); $('#add-error').hidden = false; } }); $('#add-browse').addEventListener('click',async () => { try { const path = await call('chooseDirectory'); if (typeof path === 'string' && path) $('#add-directory').value = path; } catch (error) { $('#add-error').textContent = messageOf(error); $('#add-error').hidden = false; } });
 $('#download-category').addEventListener('change',event => { const folder = state.settings.categoryDirectories?.[event.target.value]; if (folder) $('#add-directory').value = folder; rememberInput.disabled = !event.target.value; if (rememberInput.disabled) rememberInput.checked = false; });

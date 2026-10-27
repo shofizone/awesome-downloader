@@ -13,7 +13,7 @@ test('Linux native host launcher runs Electron as Node with a quoted path', linu
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awesome-launcher-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const executable = path.join(root, "Electron App's Folder", 'electron');
-  const launcher = await writeNativeHostLauncher(root, executable);
+  const launcher = await writeNativeHostLauncher(root, executable, 'linux');
   assert.equal(launcher, path.join(root, 'native-host.sh'));
   const content = await fs.readFile(launcher, 'utf8');
   assert.match(content, /^#!\/bin\/sh\n/);
@@ -37,15 +37,16 @@ test('Windows native host launcher escapes percent signs for batch files', async
 test('Linux native messaging manifests live in the browser config directories', () => {
   const configHome = '/home/example/.config';
   const home = '/home/example';
-  assert.equal(nativeHostManifestPath('Chrome', { configHome, home }),
+  const platform = 'linux';
+  assert.equal(nativeHostManifestPath('Chrome', { platform, configHome, home }),
     '/home/example/.config/google-chrome/NativeMessagingHosts/com.awesome.downloader.json');
-  assert.equal(nativeHostManifestPath('Chromium', { configHome, home }),
+  assert.equal(nativeHostManifestPath('Chromium', { platform, configHome, home }),
     '/home/example/.config/chromium/NativeMessagingHosts/com.awesome.downloader.json');
-  assert.equal(nativeHostManifestPath('Edge', { configHome, home }),
+  assert.equal(nativeHostManifestPath('Edge', { platform, configHome, home }),
     '/home/example/.config/microsoft-edge/NativeMessagingHosts/com.awesome.downloader.json');
-  assert.equal(nativeHostManifestPath('Firefox', { configHome, home }),
+  assert.equal(nativeHostManifestPath('Firefox', { platform, configHome, home }),
     '/home/example/.mozilla/native-messaging-hosts/com.awesome.downloader.json');
-  assert.equal(nativeHostManifestPath('Unknown', { configHome, home }), null);
+  assert.equal(nativeHostManifestPath('Unknown', { platform, configHome, home }), null);
 });
 
 test('Linux registration writes a valid native messaging manifest', linux, async t => {
@@ -60,9 +61,9 @@ test('Linux registration writes a valid native messaging manifest', linux, async
   const integrationRoot = path.join(root, 'browser');
   await fs.mkdir(path.join(integrationRoot, 'integration'), { recursive: true });
   await fs.writeFile(path.join(integrationRoot, 'integration', 'native-host.cjs'), '');
-  await writeNativeHostLauncher(path.join(integrationRoot, 'integration'), '/opt/Awesome Downloader/awesome-downloader');
+  await writeNativeHostLauncher(path.join(integrationRoot, 'integration'), '/opt/Awesome Downloader/awesome-downloader', 'linux');
   const extensionId = 'a'.repeat(32);
-  const result = await registerBrowser({ browser: 'Chrome', extensionId }, { dataDirectory: path.join(root, 'data'), integrationRoot });
+  const result = await registerBrowser({ browser: 'Chrome', extensionId }, { dataDirectory: path.join(root, 'data'), integrationRoot, platform: 'linux', home: root });
   assert.equal(result.manifestPath, path.join(root, 'config', 'google-chrome', 'NativeMessagingHosts', 'com.awesome.downloader.json'));
   const manifest = JSON.parse(await fs.readFile(result.manifestPath, 'utf8'));
   assert.equal(manifest.name, 'com.awesome.downloader');
@@ -80,7 +81,7 @@ test('Linux prepares the native host without a C# compiler', linux, async t => {
   const folder = path.join(integrationRoot, 'integration');
   await fs.mkdir(folder, { recursive: true });
   await fs.writeFile(path.join(folder, 'native-host.cjs'), '');
-  await prepareNativeHost(integrationRoot, '/usr/bin/electron');
+  await prepareNativeHost(integrationRoot, '/usr/bin/electron', 'linux');
   const launcher = path.join(folder, 'native-host.sh');
   assert.equal((await fs.stat(launcher)).mode & 0o777, 0o755);
   assert.equal(await fs.readFile(path.join(folder, 'runtime-path.txt'), 'utf8'), '/usr/bin/electron');

@@ -114,7 +114,7 @@ function readBridge(configPath) {
 function submitDownload(payload, config) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payload);
-    const request = http.request({host:'127.0.0.1',port:config.port,path:payload.action==='formats'?'/formats':'/downloads',method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'Authorization':`Bearer ${config.token}`},timeout:payload.action==='formats'?55000:15000}, response => {
+    const request = http.request({host:'127.0.0.1',port:config.port,path:payload.action==='formats'?'/formats':'/downloads',method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'Authorization':`Bearer ${config.token}`},timeout:payload.action==='formats'?130000:15000}, response => {
       let result='';
       response.on('data', chunk => { result += chunk; if (result.length > MAX_MESSAGE) response.destroy(new Error('Desktop response too large.')); });
       response.on('error',reject);

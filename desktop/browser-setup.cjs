@@ -1,3 +1,4 @@
+const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
@@ -50,7 +51,11 @@ async function openExtensions(browser) {
     }
     throw new Error(`${browser} was not found. Open ${url} in your browser manually.`);
   }
-  const executable = await findExecutable(linuxExecutables[browser], linuxFallbacks[browser]);
+  // macOS: run the app bundle's own binary so a running browser gets the URL, as on Windows.
+  const macApps = { Chrome: 'Google Chrome', Chromium: 'Chromium', Edge: 'Microsoft Edge' };
+  const executable = process.platform === 'darwin'
+    ? await findExecutable([], ['/Applications', path.join(os.homedir(), 'Applications')].map(root => path.join(root, `${macApps[browser]}.app`, 'Contents', 'MacOS', macApps[browser])))
+    : await findExecutable(linuxExecutables[browser], linuxFallbacks[browser]);
   if (!executable) throw new Error(`${browser} was not found. Open ${url} in your browser manually.`);
   await openWindow(executable, url);
 }

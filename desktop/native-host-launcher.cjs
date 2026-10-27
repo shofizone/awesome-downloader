@@ -1,8 +1,8 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-// Browsers launch native messaging hosts directly, so Linux needs a small
-// executable shell wrapper. Windows uses a .cmd for development runs and a
+// Browsers launch native messaging hosts directly, so Linux and macOS need a
+// small executable shell wrapper. Windows uses a .cmd for development runs and a
 // compiled launcher (see prepareNativeHost) for installed copies.
 async function writeNativeHostLauncher(directory, executable, platform = process.platform) {
   const hostScript = path.join(directory, 'native-host.cjs');

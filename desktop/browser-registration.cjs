@@ -5,18 +5,21 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { writeNativeHostLauncher } = require('./native-host-launcher.cjs');
 const exec = promisify(execFile);
-const isWindows = process.platform === 'win32';
 const HOST = 'com.awesome.downloader';
 const BROWSERS = ['Chrome', 'Chromium', 'Edge', 'Firefox'];
 
-// Linux browsers read native messaging manifests from per-user directories
-// instead of the Windows registry. Keep the mapping in one place so setup,
-// manual registration, and browser detection all agree.
-function linuxConfigHome() {
-  return process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+// Linux and macOS browsers read native messaging manifests from per-user
+// directories instead of the Windows registry. Keep the mapping in one place so
+// setup, manual registration, and browser detection all agree.
+function linuxConfigHome(home = os.homedir()) {
+  return process.env.XDG_CONFIG_HOME || path.join(home, '.config');
 }
-function nativeHostManifestPath(browser, { configHome = linuxConfigHome(), home = os.homedir() } = {}) {
+// macOS keeps both profiles and manifests under ~/Library/Application Support.
+const macFolders = { Chrome: 'Google/Chrome', Chromium: 'Chromium', Edge: 'Microsoft Edge', Firefox: 'Mozilla' };
+const macSupport = home => path.join(home, 'Library', 'Application Support');
+function nativeHostManifestPath(browser, { platform = process.platform, home = os.homedir(), configHome = linuxConfigHome(home) } = {}) {
   const name = `${HOST}.json`;
+  if (platform === 'darwin') return macFolders[browser] ? path.join(macSupport(home), macFolders[browser], 'NativeMessagingHosts', name) : null;
   const directories = {
     Chrome: ['google-chrome', 'NativeMessagingHosts'],
     Chromium: ['chromium', 'NativeMessagingHosts'],
@@ -27,17 +30,18 @@ function nativeHostManifestPath(browser, { configHome = linuxConfigHome(), home 
   if (!parts) return null;
   return path.join(browser === 'Firefox' ? home : configHome, ...parts, name);
 }
-function manifestTarget(integrationRoot) {
-  return path.join(integrationRoot, 'integration', isWindows ? 'native-host.exe' : 'native-host.sh');
+function manifestTarget(integrationRoot, platform) {
+  return path.join(integrationRoot, 'integration', platform === 'win32' ? 'native-host.exe' : 'native-host.sh');
 }
-async function registerBrowser({ browser, extensionId }, { dataDirectory, integrationRoot }) {
+async function registerBrowser({ browser, extensionId }, { dataDirectory, integrationRoot, platform = process.platform, home = os.homedir() }) {
   if (!BROWSERS.includes(browser)) throw new Error('Choose Chrome, Chromium, Edge, or Firefox.');
   if (typeof extensionId !== 'string' || !(browser === 'Firefox' ? /^[A-Za-z0-9@._{}-]{1,128}$/ : /^[a-p]{32}$/).test(extensionId)) throw new Error('Copy the extension ID from your browser’s extensions page.');
+  const isWindows = platform === 'win32';
   const roots = { Chrome: 'Google\\Chrome', Chromium: 'Chromium', Edge: 'Microsoft\\Edge', Firefox: 'Mozilla' };
   const key = `HKCU\\Software\\${roots[browser]}\\NativeMessagingHosts\\${HOST}`;
   const folder = path.join(dataDirectory, 'NativeMessaging');
-  const manifestPath = isWindows ? path.join(folder, `${browser}.json`) : nativeHostManifestPath(browser);
-  const manifest = { name: HOST, description: 'Awesome Downloader browser bridge', path: manifestTarget(integrationRoot), type: 'stdio' };
+  const manifestPath = isWindows ? path.join(folder, `${browser}.json`) : nativeHostManifestPath(browser, { platform, home });
+  const manifest = { name: HOST, description: 'Awesome Downloader browser bridge', path: manifestTarget(integrationRoot, platform), type: 'stdio' };
   if (browser === 'Firefox') manifest.allowed_extensions = [extensionId];
   else manifest.allowed_origins = [`chrome-extension://${extensionId}/`];
   const content = JSON.stringify(manifest, null, 2);
@@ -47,7 +51,8 @@ async function registerBrowser({ browser, extensionId }, { dataDirectory, integr
   let previous;
   try { previous = await fs.readFile(manifestPath, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   const stamp = new Date().toISOString().replaceAll(/[:.]/g, '-');
-  if (previous && previous !== content) await fs.writeFile(`${manifestPath}.${stamp}.bak`, previous);
+  // Backups stay in our own folder so browsers never see a stray manifest.
+  if (previous && previous !== content) await fs.writeFile(path.join(folder, `${browser}.json.${stamp}.bak`), previous);
   if (isWindows) {
     let registry = null;
     try { registry = (await exec('reg.exe', ['QUERY', key, '/ve'], { windowsHide: true })).stdout; }
@@ -67,15 +72,18 @@ async function registerBrowser({ browser, extensionId }, { dataDirectory, integr
   }
   return { ok: true, manifestPath, extensionPath };
 }
+// Windows keeps Chrome/Edge profiles under LOCALAPPDATA, macOS under
+// ~/Library/Application Support, and Linux under XDG_CONFIG_HOME.
+function browserProfileRoots(platform, { localAppData, home }) {
+  if (platform === 'win32') return [['Chrome', path.join(localAppData, 'Google/Chrome/User Data')], ['Edge', path.join(localAppData, 'Microsoft/Edge/User Data')]];
+  if (platform === 'darwin') return ['Chrome', 'Chromium', 'Edge'].map(browser => [browser, path.join(macSupport(home), macFolders[browser])]);
+  const config = linuxConfigHome(home);
+  return [['Chrome', path.join(config, 'google-chrome')], ['Chromium', path.join(config, 'chromium')], ['Edge', path.join(config, 'microsoft-edge')]];
+}
 // Read only extension registrations, never browser history, cookies, or page data.
-async function connectInstalledBrowsers({ dataDirectory, integrationRoot, localAppData = process.env.LOCALAPPDATA }) {
+async function connectInstalledBrowsers({ dataDirectory, integrationRoot, localAppData = process.env.LOCALAPPDATA, platform = process.platform, home = os.homedir() }) {
   const results = [];
-  // Windows keeps Chrome/Edge profiles under LOCALAPPDATA; Linux uses
-  // XDG_CONFIG_HOME. Chromium is common on Linux, so it is detected too.
-  const roots = isWindows
-    ? [['Chrome', path.join(localAppData, 'Google/Chrome/User Data')], ['Edge', path.join(localAppData, 'Microsoft/Edge/User Data')]]
-    : [['Chrome', path.join(linuxConfigHome(), 'google-chrome')], ['Chromium', path.join(linuxConfigHome(), 'chromium')], ['Edge', path.join(linuxConfigHome(), 'microsoft-edge')]];
-  for (const [browser, root] of roots) {
+  for (const [browser, root] of browserProfileRoots(platform, { localAppData, home })) {
     let profiles;
     try { profiles = await fs.readdir(root, { withFileTypes: true }); } catch { continue; }
     const ids = new Set();
@@ -99,7 +107,7 @@ async function connectInstalledBrowsers({ dataDirectory, integrationRoot, localA
       }
     }
     if (ids.size) {
-      const result = await registerBrowser({ browser, extensionId: [...ids][0] }, { dataDirectory, integrationRoot });
+      const result = await registerBrowser({ browser, extensionId: [...ids][0] }, { dataDirectory, integrationRoot, platform, home });
       // Multiple profiles may assign different IDs to this same unpacked extension.
       const manifest = JSON.parse(await fs.readFile(result.manifestPath, 'utf8'));
       manifest.allowed_origins = [...ids].map(id => `chrome-extension://${id}/`);
@@ -109,9 +117,9 @@ async function connectInstalledBrowsers({ dataDirectory, integrationRoot, localA
   }
   return results;
 }
-async function prepareNativeHost(integrationRoot, executable) {
+async function prepareNativeHost(integrationRoot, executable, platform = process.platform) {
   const folder = path.join(integrationRoot, 'integration');
-  if (isWindows) {
+  if (platform === 'win32') {
     const target = path.join(folder, 'native-host.exe');
     try { await fs.access(target); }
     catch {
@@ -119,8 +127,8 @@ async function prepareNativeHost(integrationRoot, executable) {
       await exec(compiler, ['/nologo', '/target:exe', `/out:${target}`, path.join(folder, 'NativeHostLauncher.cs')], { windowsHide: true });
     }
   } else {
-    // Linux uses the wrapper script directly; no compiler is available or needed.
-    await writeNativeHostLauncher(folder, executable);
+    // Linux and macOS use the wrapper script directly; no compiler is needed.
+    await writeNativeHostLauncher(folder, executable, platform);
   }
   await fs.writeFile(path.join(folder, 'runtime-path.txt'), executable, 'utf8');
 }
