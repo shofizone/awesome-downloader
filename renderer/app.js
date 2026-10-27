@@ -188,8 +188,9 @@ const tablePoint=event=>{const bounds=tableScroll.getBoundingClientRect();return
 tableScroll.addEventListener('pointerdown',event=>{
   if(event.button!==0||event.target.closest('thead')||event.target.closest('button'))return;
   const point=tablePoint(event),row=event.target.closest('.download-row');
-  selectionDrag={pointerId:event.pointerId,startX:point.x,startY:point.y,row,base:(event.ctrlKey||event.metaKey)?new Set(selectedIds):new Set(),moved:false};
-  tableScroll.setPointerCapture(event.pointerId);event.preventDefault();
+  selectionDrag={pointerId:event.pointerId,startX:point.x,startY:point.y,row,toggle:event.ctrlKey||event.metaKey,base:(event.ctrlKey||event.metaKey)?new Set(selectedIds):new Set(),moved:false};
+  // preventDefault stops text selection during a drag, but also the click's usual focus.
+  tableScroll.setPointerCapture(event.pointerId);event.preventDefault();tableScroll.focus({preventScroll:true});
 });
 tableScroll.addEventListener('pointermove',event=>{
   if(!selectionDrag||selectionDrag.pointerId!==event.pointerId)return;
@@ -203,7 +204,10 @@ tableScroll.addEventListener('pointermove',event=>{
   for(const row of $$('.download-row')){const rect=row.getBoundingClientRect(),rowLeft=rect.left-viewport.left+tableScroll.scrollLeft,rowTop=rect.top-viewport.top+tableScroll.scrollTop;if(rowLeft<right&&rowLeft+rect.width>left&&rowTop<bottom&&rowTop+rect.height>top)selectedIds.add(row.dataset.id);}
   selectedId=selectedIds.values().next().value||null;paintSelection();event.preventDefault();
 });
-function finishMarquee(event){if(!selectionDrag||selectionDrag.pointerId!==event.pointerId)return;const moved=selectionDrag.moved,row=selectionDrag.row;try{tableScroll.releasePointerCapture(event.pointerId);}catch{}selectionDrag=null;selectionRectangle.hidden=true;if(moved){suppressRowClick=true;setTimeout(()=>{suppressRowClick=false;},0);}else if(!row)selectDownload(null);}
+// With the pointer captured, Chromium sends the following click and double-click to
+// the list rather than the row, so the row is resolved here.
+function finishMarquee(event){if(!selectionDrag||selectionDrag.pointerId!==event.pointerId)return;const {moved,row,toggle}=selectionDrag;try{tableScroll.releasePointerCapture(event.pointerId);}catch{}selectionDrag=null;selectionRectangle.hidden=true;if(moved||row){if(!moved)selectDownload(row.dataset.id,{additive:toggle,toggle});suppressRowClick=true;setTimeout(()=>{suppressRowClick=false;},0);}else selectDownload(null);}
+tableScroll.addEventListener('dblclick',event=>{if(event.target.closest('.download-row'))return;const row=document.elementFromPoint(event.clientX,event.clientY)?.closest('.download-row');if(row)showDetails(row.dataset.id);});
 tableScroll.addEventListener('pointerup',finishMarquee);tableScroll.addEventListener('pointercancel',finishMarquee);
 $('#table-scroll').addEventListener('keydown',event => { if (!visibleDownloads.length) return; const index = visibleDownloads.findIndex(d => d.id === selectedId); if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) { event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? visibleDownloads.length - 1 : Math.max(0,Math.min(visibleDownloads.length - 1,index + (event.key === 'ArrowDown' ? 1 : -1))); selectDownload(visibleDownloads[next].id); $$('.download-row').find(row => row.dataset.id === selectedId)?.scrollIntoView({block:'nearest'}); } if (event.key === 'Enter' && selectedId) showDetails(selectedId); if (event.key === 'Delete' || (isMac && event.metaKey && event.key === 'Backspace')) performAction(selected(),'remove'); });
 $('#dismiss-toast').addEventListener('click',() => { $('#toast').hidden = true; }); $$('[data-close]').forEach(button => button.addEventListener('click',() => { const dialog = button.closest('dialog'); dialog.close(); if (dialog.id === 'add-dialog') dismissReview(); })); $('#add-dialog').addEventListener('cancel',() => dismissReview()); document.addEventListener('keydown',event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); if (!$$('dialog[open]').length) openAdd(); } if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && !$$('dialog[open]').length) { event.preventDefault(); $('#search').focus(); } });
