@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
-const { nativeHostManifestPath, registerBrowser, connectInstalledBrowsers, prepareNativeHost } = require('../desktop/browser-registration.cjs');
+const { nativeHostManifestPath, registerBrowser, connectInstalledBrowsers, prepareNativeHost, unpackedExtensionId } = require('../desktop/browser-registration.cjs');
 
 const posix = { skip: process.platform === 'win32' };
 const id = 'abcdefghijklmnopabcdefghijklmnop';
@@ -71,5 +71,28 @@ test('macOS browser scan finds the unpacked extension in Chrome and Edge profile
   const results = await connectInstalledBrowsers({ dataDirectory, integrationRoot, platform: 'darwin', home });
   assert.deepEqual(results, [{ browser: 'Chrome', connected: true }, { browser: 'Edge', connected: true }]);
   const edge = JSON.parse(await fs.readFile(path.join(support, 'Microsoft Edge', 'NativeMessagingHosts', 'com.awesome.downloader.json'), 'utf8'));
-  assert.deepEqual(edge.allowed_origins, [`chrome-extension://${id}/`]);
+  assert.ok(edge.allowed_origins.includes(`chrome-extension://${id}/`));
+});
+
+test('an unpacked extension ID is derived from its folder path as Chromium does', () => {
+  // Checked against Chromium loading the extension from this folder.
+  assert.equal(unpackedExtensionId('/private/tmp/Awesome Downloader id check/extension'), 'lgehngogdpkgokbpaledodmmdldadjff');
+});
+
+test('macOS registers the included extension even when browser profiles cannot be read', posix, async t => {
+  const { home, dataDirectory, integrationRoot } = await macFixture(t);
+  await prepareNativeHost(integrationRoot, process.execPath, 'darwin');
+  // macOS privacy protection stops other apps from listing Chrome's profiles, while
+  // its NativeMessagingHosts folder stays reachable: no read, but write and search.
+  const chrome = path.join(home, 'Library', 'Application Support', 'Google', 'Chrome');
+  await fs.mkdir(chrome, { recursive: true });
+  await fs.chmod(chrome, 0o300);
+  // Restored here: the fixture's cleanup runs before later t.after hooks.
+  try { await connectInstalledBrowsers({ dataDirectory, integrationRoot, platform: 'darwin', home }); }
+  finally { await fs.chmod(chrome, 0o755); }
+  const expected = `chrome-extension://${unpackedExtensionId(await fs.realpath(path.join(integrationRoot, 'extension')))}/`;
+  const manifest = JSON.parse(await fs.readFile(nativeHostManifestPath('Chrome', { platform: 'darwin', home }), 'utf8'));
+  assert.deepEqual(manifest.allowed_origins, [expected]);
+  // Browsers without a folder are not set up.
+  await assert.rejects(fs.access(path.join(home, 'Library', 'Application Support', 'Microsoft Edge')));
 });

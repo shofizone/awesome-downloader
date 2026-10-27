@@ -33,9 +33,11 @@ function nativeHostManifestPath(browser, { platform = process.platform, home = o
 function manifestTarget(integrationRoot, platform) {
   return path.join(integrationRoot, 'integration', platform === 'win32' ? 'native-host.exe' : 'native-host.sh');
 }
-async function registerBrowser({ browser, extensionId }, { dataDirectory, integrationRoot, platform = process.platform, home = os.homedir() }) {
+// extraIds lets one manifest allow several IDs of the same unpacked extension.
+async function registerBrowser({ browser, extensionId, extraIds = [] }, { dataDirectory, integrationRoot, platform = process.platform, home = os.homedir() }) {
   if (!BROWSERS.includes(browser)) throw new Error('Choose Chrome, Chromium, Edge, or Firefox.');
   if (typeof extensionId !== 'string' || !(browser === 'Firefox' ? /^[A-Za-z0-9@._{}-]{1,128}$/ : /^[a-p]{32}$/).test(extensionId)) throw new Error('Copy the extension ID from your browser’s extensions page.');
+  if (!Array.isArray(extraIds) || extraIds.some(id => browser === 'Firefox' || !/^[a-p]{32}$/.test(id))) throw new Error('Invalid extension IDs.');
   const isWindows = platform === 'win32';
   const roots = { Chrome: 'Google\\Chrome', Chromium: 'Chromium', Edge: 'Microsoft\\Edge', Firefox: 'Mozilla' };
   const key = `HKCU\\Software\\${roots[browser]}\\NativeMessagingHosts\\${HOST}`;
@@ -43,7 +45,7 @@ async function registerBrowser({ browser, extensionId }, { dataDirectory, integr
   const manifestPath = isWindows ? path.join(folder, `${browser}.json`) : nativeHostManifestPath(browser, { platform, home });
   const manifest = { name: HOST, description: 'Awesome Downloader browser bridge', path: manifestTarget(integrationRoot, platform), type: 'stdio' };
   if (browser === 'Firefox') manifest.allowed_extensions = [extensionId];
-  else manifest.allowed_origins = [`chrome-extension://${extensionId}/`];
+  else manifest.allowed_origins = [...new Set([extensionId, ...extraIds])].map(id => `chrome-extension://${id}/`);
   const content = JSON.stringify(manifest, null, 2);
   await fs.access(manifest.path);
   await fs.mkdir(folder, { recursive: true });
@@ -80,12 +82,22 @@ function browserProfileRoots(platform, { localAppData, home }) {
   const config = linuxConfigHome(home);
   return [['Chrome', path.join(config, 'google-chrome')], ['Chromium', path.join(config, 'chromium')], ['Edge', path.join(config, 'microsoft-edge')]];
 }
+// Chromium gives an unpacked extension without a "key" an ID derived from its folder on
+// macOS and Linux: the first 32 hex digits of the SHA-256 of its absolute path, as a-p.
+function unpackedExtensionId(directory) {
+  return require('node:crypto').createHash('sha256').update(directory).digest('hex').slice(0, 32).replace(/[0-9a-f]/g, digit => 'abcdefghijklmnop'[parseInt(digit, 16)]);
+}
 // Read only extension registrations, never browser history, cookies, or page data.
 async function connectInstalledBrowsers({ dataDirectory, integrationRoot, localAppData = process.env.LOCALAPPDATA, platform = process.platform, home = os.homedir() }) {
   const results = [];
+  // macOS stops other apps from reading browser profiles, so the scan below can find
+  // nothing there. The included extension's ID follows from its folder; allow it too.
+  const ownId = platform === 'win32' ? null : unpackedExtensionId(await fs.realpath(path.join(integrationRoot, 'extension')));
   for (const [browser, root] of browserProfileRoots(platform, { localAppData, home })) {
-    let profiles;
-    try { profiles = await fs.readdir(root, { withFileTypes: true }); } catch { continue; }
+    // Only browsers this user has run have a folder.
+    try { await fs.stat(root); } catch { continue; }
+    let profiles = [];
+    try { profiles = await fs.readdir(root, { withFileTypes: true }); } catch { /* Unreadable under macOS privacy protection. */ }
     const ids = new Set();
     for (const profile of profiles.filter(p => p.isDirectory() && /^(Default|Profile \d+)$/.test(p.name))) {
       for (const file of ['Preferences', 'Secure Preferences']) {
@@ -106,13 +118,13 @@ async function connectInstalledBrowsers({ dataDirectory, integrationRoot, localA
         } catch { /* A running browser can temporarily replace a preference file. */ }
       }
     }
+    const detected = ids.size > 0;
+    if (ownId) ids.add(ownId);
     if (ids.size) {
-      const result = await registerBrowser({ browser, extensionId: [...ids][0] }, { dataDirectory, integrationRoot, platform, home });
       // Multiple profiles may assign different IDs to this same unpacked extension.
-      const manifest = JSON.parse(await fs.readFile(result.manifestPath, 'utf8'));
-      manifest.allowed_origins = [...ids].map(id => `chrome-extension://${id}/`);
-      await fs.writeFile(result.manifestPath, JSON.stringify(manifest, null, 2));
-      results.push({ browser, connected: true });
+      const [extensionId, ...extraIds] = ids;
+      await registerBrowser({ browser, extensionId, extraIds }, { dataDirectory, integrationRoot, platform, home });
+      if (detected) results.push({ browser, connected: true });
     }
   }
   return results;
@@ -132,4 +144,4 @@ async function prepareNativeHost(integrationRoot, executable, platform = process
   }
   await fs.writeFile(path.join(folder, 'runtime-path.txt'), executable, 'utf8');
 }
-module.exports = { registerBrowser, connectInstalledBrowsers, prepareNativeHost, nativeHostManifestPath, BROWSERS };
+module.exports = { registerBrowser, connectInstalledBrowsers, prepareNativeHost, nativeHostManifestPath, unpackedExtensionId, BROWSERS };
